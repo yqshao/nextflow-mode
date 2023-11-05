@@ -25,13 +25,12 @@
 
 (require 'cl-lib)
 (require 'groovy-mode)
-
-
+(require 'polymode nil t)
 ;;; Customization
 
 ;;;###autoload
 (defgroup nextflow-mode nil
-  "Support for Nextflow files"
+  "Support for Nextflow files."
   :group 'tools)
 
 (defcustom nextflow-mode-hook nil
@@ -45,6 +44,10 @@
 (defcustom nextflow-indent-value-offset 4
   "Offset for field values that the line below the field key."
   :type 'integer)
+
+(defcustom nextflow-enable-polymode nil
+  "Enable polymode in nextflow scripts."
+  :type 'boolean)
 
 
 ;;; Regexp
@@ -261,6 +264,55 @@
 (add-to-list 'auto-mode-alist '("\\.nextflow\\'" . nextflow-mode))
 ;;;###autoload
 (add-to-list 'auto-mode-alist '("\\nextflow.config\\'" . nextflow-mode))
+
+;;; Polymode
+(if nextflow-enable-polymode
+    (with-eval-after-load 'polymode
+      (defconst nextflow-auto-regex
+	(cons "\\( *\\(?:\"\"\"\\|'''\\) *\n *#!/usr/bin.*$\\)" 1))
+      (defconst nextflow-script-regex
+	(cons "^[ \t]*\\(?:script\\|shell\\|exec\\):[ \t]*\n\\([ \t]*\"\"\"\\|'''[ \t]*\n\\)" 1))
+      (defconst nextflow-mode-regex
+	"#!/usr/bin/\\(?:env *\\)?\\([[:alpha:]]+\\)")
+      (defconst nextflow-tail-regex
+	"^[ \t]*\\(?:\"\"\"\\|'''\\)\n")
+
+      (defun nextflow-mode-matcher ()
+	(re-search-forward nextflow-mode-regex (pos-eol 2) t 1)
+	(match-string-no-properties 1))
+
+      (define-hostmode poly-nextflow-hostmode
+	:protect-font-lock t
+	:mode 'nextflow-mode)
+
+      (define-innermode poly-nextflow-root-innermode
+	:mode nil
+	:fallback-mode 'host
+	:head-mode 'host
+	:tail-mode 'host
+	:adjust-face 2
+	:head-adjust-face 2)
+
+      (define-auto-innermode poly-nextflow-auto-innermode poly-nextflow-root-innermode
+	:head-matcher nextflow-auto-regex
+	:tail-matcher nextflow-tail-regex
+	:mode-matcher 'nextflow-mode-matcher)
+
+      (define-innermode poly-nextflow-script-innermode poly-nextflow-root-innermode
+	:mode 'shell-script-mode
+	:head-matcher nextflow-script-regex
+	:tail-matcher nextflow-tail-regex)
+
+      (define-polymode poly-nextflow-mode
+	:hostmode 'poly-nextflow-hostmode
+	:innermodes '(poly-nextflow-auto-innermode
+		      poly-nextflow-script-innermode))
+
+      (pm-around-advice '(flycheck-may-check-automatically
+			  sh-set-shell)
+			#'polymode-inhibit-in-indirect-buffers)
+
+      (add-to-list 'auto-mode-alist '("\\.nf\\'" . poly-nextflow-mode))))
 
 (provide 'nextflow-mode)
 ;;; nextflow-mode.el ends here
